@@ -72,6 +72,16 @@ pub struct Density {
     pub bw: f64,
 }
 
+/// R's `density(x)` with every default: `n = 512`, and the range extended by `cut = 3`
+/// bandwidths past the data. flowVS uses this one to place valleys, and a different grid puts a
+/// valley in a different place, so the defaults are part of the algorithm.
+pub fn density_default(x: &[f64]) -> Density {
+    let bw = bw_nrd0(x);
+    let from = x.iter().cloned().fold(f64::INFINITY, f64::min) - 3.0 * bw;
+    let to = x.iter().cloned().fold(f64::NEG_INFINITY, f64::max) + 3.0 * bw;
+    density(x, 512, from, to)
+}
+
 /// `density(x, n = n_user, from, to)` with the Gaussian kernel and `bw.nrd0`.
 pub fn density(x: &[f64], n_user: usize, from: f64, to: f64) -> Density {
     let bw = bw_nrd0(x);

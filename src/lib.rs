@@ -15,10 +15,11 @@
 //! 6. peak regions and peaks          — [`peaks`] (valleys and populations not yet ported)
 //! 7. Bartlett objective, optimiser  — not yet ported
 //!
-//! Stages 1–6 are implemented and checked against fixtures dumped from the R reference
+//! All stages are implemented and checked against fixtures dumped from the R reference
 //! (`fixtures/gen_fixtures.R`).
 pub mod bandwidth;
 pub mod binning;
+pub mod estimate;
 pub mod kde;
 pub mod optimize;
 pub mod peaks;

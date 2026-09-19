@@ -69,9 +69,13 @@ pub fn curv_peaks(regions: &[Region], y: &[f64], border_quant: f64) -> Vec<Peak>
     let hi_cut = from + (1.0 - border_quant) * (to - from);
 
     let dens = rdensity::density(y, 201, from, to);
+    // A region can reach past the data, because the significance grid is widened by 3.7
+    // bandwidths. R's `approxfun` returns NA there and `optimize` replaces NA with the worst
+    // possible value (its "NA/NaN replaced by maximum positive value" warning), which steers the
+    // search back inside. Reproduce that rather than clamping, which would invent a plateau.
     let f = |t: f64| -> f64 {
-        let t = t.clamp(from, to); // approxfun is NA outside; a region never should be
-        rdensity::approx(&dens.x, &dens.y, &[t])[0]
+        let v = rdensity::approx(&dens.x, &dens.y, &[t])[0];
+        if v.is_nan() { -f64::MAX } else { v }
     };
 
     let mut peaks = Vec::new();
