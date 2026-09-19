@@ -1,0 +1,16 @@
+[package]
+name = "flowvs"
+version = "0.1.0"
+edition = "2024"
+description = "flowVS channel-specific variance stabilisation: cofactor estimation, ported from Tercen's validated R implementation"
+license = "AGPL-3.0"
+
+[dependencies]
+# Binned KDE convolution (R's symconv uses fft); rustfft is pure Rust, no BLAS.
+rustfft = "6"
+# erfc, for the chi-squared survival function with one degree of freedom.
+libm = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
