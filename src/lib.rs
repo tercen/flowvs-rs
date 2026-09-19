@@ -12,14 +12,17 @@
 //! 3. grid and linear binning        — [`binning`]
 //! 4. binned KDE and 2nd derivative  — [`kde`]
 //! 5. significant local modes        — [`signif`]
-//! 6. peaks, valleys, populations    — not yet ported
+//! 6. peak regions and peaks          — [`peaks`] (valleys and populations not yet ported)
 //! 7. Bartlett objective, optimiser  — not yet ported
 //!
-//! Stages 1–5 are implemented and checked against fixtures dumped from the R reference
+//! Stages 1–6 are implemented and checked against fixtures dumped from the R reference
 //! (`fixtures/gen_fixtures.R`).
 pub mod bandwidth;
 pub mod binning;
 pub mod kde;
+pub mod optimize;
+pub mod peaks;
+pub mod rdensity;
 pub mod signif;
 pub mod stats;
 

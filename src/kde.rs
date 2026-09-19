@@ -84,7 +84,7 @@ pub fn drvkde(gcounts: &[f64], drv: usize, h: f64, a: f64, b: f64) -> Drvkde {
         }
     };
 
-    let sign = if drv % 2 == 0 { 1.0 } else { -1.0 };
+    let sign = if drv.is_multiple_of(2) { 1.0 } else { -1.0 };
     let kappam: Vec<f64> = arg
         .iter()
         .zip(&hm)
