@@ -147,18 +147,40 @@ fn real_data() {
         per_channel.iter().flatten().map(|v| v.len()).sum::<usize>()
     );
 
+    // FLOWVS_FLOOR=2.5 turns on the negative-spread floor, to check it leaves a well-behaved
+    // channel alone — the cofactor check found flowVS and σ_neg agree on bright markers.
+    let floor = std::env::var("FLOWVS_FLOOR")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|factor| estimate::Floor::SigmaNeg { factor })
+        .unwrap_or(estimate::Floor::None);
     let t = std::time::Instant::now();
     let got = estimate::estimate_cofactors(
         &per_channel,
         Options {
             threads: 0,
+            floor,
             ..Options::default()
         },
     );
     let secs = t.elapsed().as_secs_f64();
 
     for (c, i) in chan_idx.iter().enumerate() {
-        println!("  {:<6} {:>14.4}", header[*i], got[c].cofactor);
+        println!(
+            "  {:<6} {:>12.2}  flowVS {:>12.2}  sigma_neg {:>10}  {:<9} runner-up {}",
+            header[*i],
+            got[c].cofactor,
+            got[c].flowvs_cofactor,
+            got[c]
+                .sigma_neg_cofactor
+                .map(|v| format!("{v:.2}"))
+                .unwrap_or_else(|| "-".into()),
+            got[c].status.as_str(),
+            got[c]
+                .runner_up
+                .map(|(cf, bt)| format!("{cf:.2} (bt {bt:.2})"))
+                .unwrap_or_else(|| "none".into())
+        );
     }
     println!("estimated in {secs:.2} s");
 
@@ -186,4 +208,75 @@ fn real_data() {
             "worst |ln ratio| {worst:e} exceeds the plan's 10% bound"
         );
     }
+}
+
+/// The floor is the principled answer to a degenerate minimum: a cofactor below the spread of
+/// the negative population cannot be stabilising it. Off by default, so flowVS parity holds.
+#[test]
+fn the_negative_spread_floor_rejects_a_degenerate_cofactor() {
+    use flowvs::estimate::{Floor, Status, sigma_neg};
+
+    // one channel, four samples, a tight negative population and a distant positive one — the
+    // shape that makes the objective bimodal
+    let data = channels(1, 4, 4000);
+    let s0 = &data[0][0];
+    let sn = sigma_neg(s0).expect("a negative population to measure");
+    println!("sigma_neg = {sn:.2}, floor = {:.2}", 2.5 * sn);
+
+    let plain = estimate::estimate_cofactors(&data, Options::default());
+    let floored = estimate::estimate_cofactors(
+        &data,
+        Options {
+            floor: Floor::SigmaNeg { factor: 2.5 },
+            ..Options::default()
+        },
+    );
+    println!(
+        "flowVS {:.2} ({:?}) -> floored {:.2} ({:?})",
+        plain[0].cofactor, plain[0].status, floored[0].cofactor, floored[0].status
+    );
+    // the floor never lowers a cofactor, and it reports what flowVS said either way
+    assert!(floored[0].cofactor >= plain[0].cofactor - 1e-9);
+    assert_eq!(floored[0].flowvs_cofactor, plain[0].flowvs_cofactor);
+    if floored[0].status == Status::Floored {
+        assert!(floored[0].cofactor > plain[0].cofactor);
+        assert_eq!(
+            floored[0].cofactor,
+            floored[0].sigma_neg_cofactor.unwrap(),
+            "a floored channel takes the floor exactly"
+        );
+    }
+}
+
+/// A channel with no negative population — a viability-gated CD45 — has no σ_neg, and the floor
+/// must leave it alone rather than invent one.
+#[test]
+fn a_channel_without_negatives_has_no_floor() {
+    use flowvs::estimate::sigma_neg;
+    let all_positive: Vec<f64> = (0..5000).map(|i| 1000.0 + (i % 700) as f64).collect();
+    assert!(sigma_neg(&all_positive).is_none());
+}
+
+/// σ_neg reads the negative half as a half-normal: median|x| = 0.6745 σ.
+#[test]
+fn sigma_neg_recovers_a_known_spread() {
+    use flowvs::estimate::sigma_neg;
+    // a clean symmetric sample with sd 200 — no positive population, which is what σ_neg
+    // assumes it is looking at
+    let mut st = 12345u64;
+    let mut next = || {
+        st = st
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((st >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+    };
+    let x: Vec<f64> = (0..40000)
+        .map(|_| {
+            let (u1, u2) = (next().max(1e-12), next());
+            200.0 * (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+        })
+        .collect();
+    let sn = sigma_neg(&x).expect("negatives");
+    println!("sigma_neg {sn:.1} for a sample with sd 200");
+    assert!((sn - 200.0).abs() / 200.0 < 0.15, "got {sn}");
 }

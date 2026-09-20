@@ -346,9 +346,25 @@ pub fn objective(cofactor: f64, samples: &[Vec<f64>], signif_level: f64, bw_corr
     bartlett(&pops)
 }
 
+/// What one channel's search found, including the answers it discarded.
+#[derive(Debug, Clone)]
+pub struct Search {
+    pub cofactor: f64,
+    pub objective: f64,
+    /// The best optimum from any **other** interval: (cofactor, objective). The search computes
+    /// these and throws them away, and they are the cheapest possible fragility signal — a
+    /// close second at a distant cofactor means the answer was a coin toss between two minima.
+    pub runner_up: Option<(f64, f64)>,
+}
+
 /// The cofactor search (R `optim_cofactor`): Brent inside each `[e^i, e^(i+1)]`, then a local
 /// refinement in tenths around the best one.
 pub fn optim_cofactor(samples: &[Vec<f64>], signif_level: f64, bw_corr: f64) -> f64 {
+    search_cofactor(samples, signif_level, bw_corr).cofactor
+}
+
+/// The same search, keeping what it learned on the way.
+pub fn search_cofactor(samples: &[Vec<f64>], signif_level: f64, bw_corr: f64) -> Search {
     let (cf_low, cf_high) = (-1i32, 10i32);
     let mut cfopt = Vec::new();
     let mut btopt = Vec::new();
@@ -390,7 +406,23 @@ pub fn optim_cofactor(samples: &[Vec<f64>], signif_level: f64, bw_corr: f64) -> 
             bestk = k;
         }
     }
-    cf_local[bestk]
+
+    // The runner-up: the best optimum from any interval other than the winning one. Intervals
+    // that found nothing (MAX_BT) carry no information and are ignored.
+    let mut runner_up: Option<(f64, f64)> = None;
+    for (i, (cf, bt)) in cfopt.iter().zip(&btopt).enumerate() {
+        if i == best || *bt >= MAX_BT {
+            continue;
+        }
+        if runner_up.is_none_or(|(_, b)| *bt < b) {
+            runner_up = Some((*cf, *bt));
+        }
+    }
+    Search {
+        cofactor: cf_local[bestk],
+        objective: bt_local[bestk],
+        runner_up,
+    }
 }
 
 #[cfg(test)]
@@ -458,6 +490,8 @@ pub struct Options {
     /// Channels estimated at once. `0` means "as many as the machine has", which is convenient
     /// for a CLI and wrong for an operator.
     pub threads: usize,
+    /// Whether to refuse a cofactor below the negative population's spread. Off by default.
+    pub floor: Floor,
 }
 
 impl Default for Options {
@@ -466,6 +500,7 @@ impl Default for Options {
             signif_level: 0.05,
             bw_corr: 1.0,
             threads: 1,
+            floor: Floor::None,
         }
     }
 }
@@ -473,10 +508,18 @@ impl Default for Options {
 /// What the search found for one channel.
 #[derive(Debug, Clone, Copy)]
 pub struct ChannelEstimate {
+    /// The cofactor to use: flowVS's answer, unless a floor replaced it.
     pub cofactor: f64,
     /// Bartlett's statistic there — `MAX_BT` means no usable populations were found, which is
     /// the "flowVS has nothing to say about this channel" case.
     pub objective: f64,
+    /// What flowVS itself returned, before any floor.
+    pub flowvs_cofactor: f64,
+    /// The best optimum from another interval, if any.
+    pub runner_up: Option<(f64, f64)>,
+    /// `factor · σ_neg` for this channel, when a negative population exists to measure.
+    pub sigma_neg_cofactor: Option<f64>,
+    pub status: Status,
 }
 
 /// Estimate one cofactor per channel (R `est_param_flowvs`), optionally in parallel.
@@ -485,11 +528,50 @@ pub struct ChannelEstimate {
 /// order and does not depend on `threads`: each channel is independent and deterministic.
 pub fn estimate_cofactors(channels: &[Vec<Vec<f64>>], opts: Options) -> Vec<ChannelEstimate> {
     let one = |samples: &Vec<Vec<f64>>| -> ChannelEstimate {
-        let cofactor = optim_cofactor(samples, opts.signif_level, opts.bw_corr);
-        let objective = objective(cofactor, samples, opts.signif_level, opts.bw_corr);
+        let found = search_cofactor(samples, opts.signif_level, opts.bw_corr);
+        let flowvs_cofactor = found.cofactor;
+
+        // The floor is per channel: σ_neg is measured on each sample and the median taken, which
+        // is what the cofactor check did across the batch controls.
+        let sigma_neg_cofactor = match opts.floor {
+            Floor::None => None,
+            Floor::SigmaNeg { factor } => {
+                let per_sample: Vec<f64> = samples.iter().filter_map(|s| sigma_neg(s)).collect();
+                (!per_sample.is_empty()).then(|| factor * median(&per_sample))
+            }
+        };
+
+        let unstable = found.objective >= MAX_BT || !flowvs_cofactor.is_finite();
+        let floored = !unstable && sigma_neg_cofactor.is_some_and(|f| flowvs_cofactor < f);
+        let fragile = !unstable
+            && !floored
+            && found.runner_up.is_some_and(|(cf, bt)| {
+                bt <= found.objective * FRAGILE_OBJECTIVE_RATIO
+                    && (cf / flowvs_cofactor).ln().abs() > FRAGILE_LN_RATIO
+            });
+        let status = if unstable {
+            Status::Unstable
+        } else if floored {
+            Status::Floored
+        } else if fragile {
+            Status::Fragile
+        } else {
+            Status::Resolved
+        };
+        // An unstable channel takes the floor when one exists: σ_neg is a defensible answer,
+        // and flowVS has none.
+        let cofactor = match (status, sigma_neg_cofactor) {
+            (Status::Floored, Some(f)) => f,
+            (Status::Unstable, Some(f)) => f,
+            _ => flowvs_cofactor,
+        };
         ChannelEstimate {
             cofactor,
-            objective,
+            objective: found.objective,
+            flowvs_cofactor,
+            runner_up: found.runner_up,
+            sigma_neg_cofactor,
+            status,
         }
     };
     if opts.threads == 1 || channels.len() < 2 {
@@ -509,3 +591,76 @@ pub fn estimate_cofactors(channels: &[Vec<Vec<f64>>], opts: Options) -> Vec<Chan
         .expect("build the estimator thread pool");
     pool.install(|| channels.par_iter().map(one).collect())
 }
+
+/// Spread of the negative population, and the cofactor it implies.
+///
+/// From `cofactor-check/README.md`: in unmixed linear space the negative population is symmetric
+/// about zero, so its spread can be read off the negative half alone as a half-normal,
+/// `median|x| = 0.6745 σ`. A cofactor of `2.5 σ` then keeps the noise band inside the linear part
+/// of asinh, where the negatives span about ±0.4 after transform.
+///
+/// Returns `None` when there is no negative population to measure — the channel where every
+/// event is positive, like a viability-gated CD45, for which no data-driven cofactor exists by
+/// any method.
+pub fn sigma_neg(x: &[f64]) -> Option<f64> {
+    let mut neg: Vec<f64> = x
+        .iter()
+        .filter(|v| **v < 0.0 && v.is_finite())
+        .map(|v| -v)
+        .collect();
+    if neg.len() < MIN_NEGATIVES || (neg.len() as f64) < 0.01 * x.len() as f64 {
+        return None;
+    }
+    neg.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let med = median_sorted(&neg);
+    (med > 0.0).then_some(med / 0.6745)
+}
+
+/// Negatives needed before their spread means anything.
+pub const MIN_NEGATIVES: usize = 100;
+/// `cofactor = 2.5 · σ_neg`, the convention the cofactor check used on this panel.
+pub const SIGMA_NEG_FACTOR: f64 = 2.5;
+
+/// What to do when flowVS lands below the spread of the negative population.
+///
+/// Off by default: `flowvs-rust-plan.md` §5 requires every improvement to be opt-in so the
+/// defaults still reproduce flowVS.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Floor {
+    /// flowVS unmodified.
+    None,
+    /// Refuse a cofactor below `factor · σ_neg`, and use that instead. A cofactor smaller than
+    /// the noise it is meant to stabilise is a degenerate minimum: asinh is then a logarithm of
+    /// the negative population, whose variance can match another population's by coincidence.
+    SigmaNeg { factor: f64 },
+}
+
+/// How much to trust a channel's cofactor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    /// One clear minimum.
+    Resolved,
+    /// Another interval came close with a very different cofactor: the search picked between two
+    /// answers, and a histogram should decide.
+    Fragile,
+    /// flowVS went below the negative spread and the floor took over.
+    Floored,
+    /// Fewer than two usable populations: flowVS has nothing to say about this channel.
+    Unstable,
+}
+
+impl Status {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Status::Resolved => "resolved",
+            Status::Fragile => "fragile",
+            Status::Floored => "floored",
+            Status::Unstable => "unstable",
+        }
+    }
+}
+
+/// A runner-up this close in objective, and this far away in cofactor, means the answer was a
+/// choice between two minima rather than a measurement.
+pub const FRAGILE_OBJECTIVE_RATIO: f64 = 1.10;
+pub const FRAGILE_LN_RATIO: f64 = 0.405_465; // ln(1.5)
