@@ -443,3 +443,69 @@ mod tests {
         assert_eq!(m[0].y, 5.0);
     }
 }
+
+/// How the estimator is run.
+///
+/// `threads` is explicit on purpose. Channels are independent, so the search parallelises almost
+/// perfectly across them, but peak memory grows with the number in flight: each worker holds the
+/// transformed copy of one sample plus its grids. An operator has to book a fixed amount of
+/// memory before it runs (see the `create-rust-operator` skill §7), and a default of "every core
+/// on the machine" makes that booking depend on the machine. So: set it.
+#[derive(Debug, Clone, Copy)]
+pub struct Options {
+    pub signif_level: f64,
+    pub bw_corr: f64,
+    /// Channels estimated at once. `0` means "as many as the machine has", which is convenient
+    /// for a CLI and wrong for an operator.
+    pub threads: usize,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            signif_level: 0.05,
+            bw_corr: 1.0,
+            threads: 1,
+        }
+    }
+}
+
+/// What the search found for one channel.
+#[derive(Debug, Clone, Copy)]
+pub struct ChannelEstimate {
+    pub cofactor: f64,
+    /// Bartlett's statistic there — `MAX_BT` means no usable populations were found, which is
+    /// the "flowVS has nothing to say about this channel" case.
+    pub objective: f64,
+}
+
+/// Estimate one cofactor per channel (R `est_param_flowvs`), optionally in parallel.
+///
+/// `channels[c][s]` is the raw values of channel `c` in sample `s`. The result is in channel
+/// order and does not depend on `threads`: each channel is independent and deterministic.
+pub fn estimate_cofactors(channels: &[Vec<Vec<f64>>], opts: Options) -> Vec<ChannelEstimate> {
+    let one = |samples: &Vec<Vec<f64>>| -> ChannelEstimate {
+        let cofactor = optim_cofactor(samples, opts.signif_level, opts.bw_corr);
+        let objective = objective(cofactor, samples, opts.signif_level, opts.bw_corr);
+        ChannelEstimate {
+            cofactor,
+            objective,
+        }
+    };
+    if opts.threads == 1 || channels.len() < 2 {
+        return channels.iter().map(one).collect();
+    }
+    use rayon::prelude::*;
+    let n = if opts.threads == 0 {
+        std::thread::available_parallelism()
+            .map(|v| v.get())
+            .unwrap_or(1)
+    } else {
+        opts.threads
+    };
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(n)
+        .build()
+        .expect("build the estimator thread pool");
+    pool.install(|| channels.par_iter().map(one).collect())
+}

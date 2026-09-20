@@ -10,6 +10,8 @@ license = "AGPL-3.0"
 rustfft = "6"
 # erfc, for the chi-squared survival function with one degree of freedom.
 libm = "0.2"
+# Channel-level parallelism, with an explicit bound: peak memory scales with it (see `Options`).
+rayon = "1"
 
 [profile.release]
 opt-level = 3

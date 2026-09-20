@@ -25,8 +25,41 @@ The plan (`flowvs-rust-plan.md` §3) asked for 1e-6 on the objective and 10% on 
 is far inside that, on data with two clear populations — which is the easy case, and the one the
 tolerance was *not* written for.
 
-Speed, which is the reason the port exists: 0.17 s against R's 1.1 s on the same three-sample
-problem, release build. R needs 21.5 minutes for 32 channels on 66k cells.
+### Real data
+
+The reference's own three-channel case (`~/tercen/flowvs/flowvs_input.csv`, 12 samples, 230,013
+values, with R's published answers alongside it) reproduces exactly:
+
+| channel | rust | R | `|ln ratio|` |
+|---|---:|---:|---:|
+| CD4 | 6450.3437 | 6450.3437 | 6.4e-15 |
+| CD8 | 4766.6984 | 4766.6984 | 2.2e-16 |
+| CD3 | 6317.3435 | 6317.3435 | 4.4e-16 |
+
+The plan allows 10% on a real channel. That data is **not** in this repository and will not be:
+the test reads `FLOWVS_INPUT_CSV` and does nothing when it is unset.
+
+```bash
+FLOWVS_INPUT_CSV=~/tercen/flowvs/flowvs_input.csv \
+FLOWVS_EXPECT_CSV=~/tercen/flowvs/flowvs_output.csv \
+  cargo test --release real_data -- --nocapture
+```
+
+### Speed
+
+That whole three-channel estimate takes **2.1 s**. On the synthetic 32-channel benchmark:
+
+| threads | 32 channels |
+|---:|---:|
+| 1 | 11.21 s |
+| 4 | 3.48 s |
+| 8 | 2.17 s |
+| 16 | 1.74 s |
+
+R needs 21.5 minutes for 32 channels on 66k cells, so this is the interactive review loop the
+plan asks for. Parallelism is **across channels** and the thread count is an explicit option that
+**defaults to 1**: peak memory grows with the number in flight, and an operator has to book a
+fixed amount before it runs. Results are bit-identical whatever the thread count, which is a test.
 
 ## Two traps worth remembering
 
@@ -46,14 +79,15 @@ Also: R's `round` is half-to-even, which the 10% sample and population trims dep
   guardrails for dim and single-peak channels, the per-batch mode, machine-readable diagnostics.
   Faris chose plain flowVS parity first; these are the part that makes it better than flowVS
   rather than equal to it.
-- **Real-data fixtures.** Everything here is synthetic and deterministic, by design — no patient
-  data in this repository, ever. The public `omip69_1k_donor` files are the obvious next fixture.
+- **Committed real-data fixtures.** Everything in the repository is synthetic and deterministic
+  by design. The real-data check above runs from a path outside it.
 - **A CLI, a Sarno operator, a wasm build.** The plan's §4 architecture beyond the library.
 - **Parity against flowVS itself** (the C-backed original), as opposed to Tercen's R port. The
   plan notes the two already differ by up to 12.7% on a borderline channel.
 
 ## Suggested next steps
 
-1. Add the public OMIP files as a real-data fixture and check a handful of channels end to end.
+1. Widen the real-data check: more channels, and the public `omip69_1k_donor` files, which could
+   be committed.
 2. Then §5's improvements, each behind an option that defaults to flowVS behaviour.
 3. Decide where this crate lives (`tercen/flowvs-rs` per the plan's §10 Q1) before it grows.
