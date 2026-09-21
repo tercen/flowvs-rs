@@ -47,6 +47,10 @@ pub fn brent_fmin<F: FnMut(f64) -> f64>(ax: f64, bx: f64, mut f: F, tol: f64) ->
             r = e;
             e = d;
         }
+        // Declared before the branches, as in R's `Brent_fmin`: the golden-section and parabolic
+        // arms both fall through to the same clamping step below, and collapsing them into an
+        // expression would break the line-for-line correspondence this port is checked against.
+        #[allow(clippy::needless_late_init)]
         let u;
         if p.abs() >= (q * 0.5 * r).abs() || p <= q * (a - x) || p >= q * (b - x) {
             // golden section

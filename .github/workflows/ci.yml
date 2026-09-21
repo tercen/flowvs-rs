@@ -17,6 +17,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # Pinned to `.tool-versions`, as the operator repositories are. `stable` moving is how
+          # a clippy lint that did not exist when the code was written turns a green branch red.
+          toolchain: 1.94.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --check
