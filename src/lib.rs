@@ -2,8 +2,8 @@
 //! (`tercen/asinh_operator/flowvs_standalone.R`), which is itself a port of Azad et al. (2016)
 //! and the flowStats peak machinery it depends on.
 //!
-//! The plan this follows, including the normative constants and the tolerance the port is held
-//! to, is `spectral-pipeline-comparisons/comparisons/flowvs-rust-plan.md` §2 and §3.
+//! Every constant here is normative: it comes from the reference and changing it changes the
+//! answer. `STATUS.md` records the agreement stage by stage.
 //!
 //! Stage by stage, per channel and candidate cofactor:
 //!
@@ -12,8 +12,8 @@
 //! 3. grid and linear binning        — [`binning`]
 //! 4. binned KDE and 2nd derivative  — [`kde`]
 //! 5. significant local modes        — [`signif`]
-//! 6. peak regions and peaks          — [`peaks`] (valleys and populations not yet ported)
-//! 7. Bartlett objective, optimiser  — not yet ported
+//! 6. peak regions and peaks         — [`peaks`]
+//! 7. populations, Bartlett objective, cofactor search — [`estimate`]
 //!
 //! All stages are implemented and checked against fixtures dumped from the R reference
 //! (`fixtures/gen_fixtures.R`).

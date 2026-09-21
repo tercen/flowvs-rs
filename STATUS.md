@@ -1,7 +1,8 @@
-# flowvs-rs — status, morning of 2026-09-20
+# flowvs-rs — status, 2026-09-21
 
-Built overnight against the goal in `~/tercen/goals/2026-09-19-asinh-flowvs.md`. **Local git only:
-no remote, nothing published.** Three commits.
+Built overnight against the goal in `~/tercen/goals/2026-09-19-asinh-flowvs.md`, and published to
+`github.com/tercen/flowvs-rs` on 2026-09-21 so that `asinh_rust_operator` can depend on it as a
+normal git dependency rather than a path. Six commits.
 
 ## Where it got to
 
@@ -73,12 +74,25 @@ fixed amount before it runs. Results are bit-identical whatever the thread count
 
 Also: R's `round` is half-to-even, which the 10% sample and population trims depend on.
 
+## Beyond flowVS, and off by default
+
+Two guards against the degenerate cofactor a dim channel produces, both added after the parity
+work and both inert unless asked for:
+
+- **`Floor::SigmaNeg { factor }`** refuses a cofactor below `factor · σ_neg`, measured from the
+  negative population's median absolute deviation and taken as the median across samples. 2.5 is
+  the value the cofactor check used. `Options::floor` defaults to `Floor::None`.
+- **The runner-up.** The search keeps the best optimum from any other interval, and a channel whose
+  runner-up is nearly as good at a very different cofactor is reported `Fragile` rather than
+  silently resolved.
+
+Every estimate carries a `Status` — `Resolved`, `Fragile`, `Floored` or `Unstable` — so a caller
+can show the three that need a human instead of a table of equally confident numbers.
+
 ## What is not here
 
-- **The improvements the plan proposes** (§5): the negative-spread estimator as a floor, the
-  guardrails for dim and single-peak channels, the per-batch mode, machine-readable diagnostics.
-  Faris chose plain flowVS parity first; these are the part that makes it better than flowVS
-  rather than equal to it.
+- **The rest of the plan's §5**: the per-batch mode and machine-readable diagnostics beyond
+  `Status`.
 - **Committed real-data fixtures.** Everything in the repository is synthetic and deterministic
   by design. The real-data check above runs from a path outside it.
 - **A CLI, a Sarno operator, a wasm build.** The plan's §4 architecture beyond the library.
@@ -90,4 +104,5 @@ Also: R's `round` is half-to-even, which the 10% sample and population trims dep
 1. Widen the real-data check: more channels, and the public `omip69_1k_donor` files, which could
    be committed.
 2. Then §5's improvements, each behind an option that defaults to flowVS behaviour.
-3. Decide where this crate lives (`tercen/flowvs-rs` per the plan's §10 Q1) before it grows.
+3. ~~Decide where this crate lives~~ — `tercen/flowvs-rs`, public, AGPL-3.0, as the plan's §10 Q1
+   proposed.

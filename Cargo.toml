@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 description = "flowVS channel-specific variance stabilisation: cofactor estimation, ported from Tercen's validated R implementation"
 license = "AGPL-3.0"
+repository = "https://github.com/tercen/flowvs-rs"
+readme = "README.md"
 
 [dependencies]
 # Binned KDE convolution (R's symconv uses fft); rustfft is pure Rust, no BLAS.
