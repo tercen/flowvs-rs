@@ -1,9 +1,9 @@
 [package]
 name = "flowvs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "flowVS channel-specific variance stabilisation: cofactor estimation, ported from Tercen's validated R implementation"
-license = "AGPL-3.0"
+license = "GPL-2.0-or-later"
 repository = "https://github.com/tercen/flowvs-rs"
 readme = "README.md"
 

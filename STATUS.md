@@ -104,5 +104,5 @@ can show the three that need a human instead of a table of equally confident num
 1. Widen the real-data check: more channels, and the public `omip69_1k_donor` files, which could
    be committed.
 2. Then §5's improvements, each behind an option that defaults to flowVS behaviour.
-3. ~~Decide where this crate lives~~ — `tercen/flowvs-rs`, public, AGPL-3.0, as the plan's §10 Q1
+3. ~~Decide where this crate lives~~ — `tercen/flowvs-rs`, public, GPL-2.0-or-later (AGPL-3.0 until 0.1.1), as the plan's §10 Q1
    proposed.

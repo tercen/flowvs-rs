@@ -80,4 +80,6 @@ Two traps the port paid for, both worth knowing if you compare against R yoursel
 
 ## Licence
 
-AGPL-3.0, following the GPL R implementation it is ported from.
+GPL-2.0-or-later (changed from AGPL-3.0 in 0.1.1). The R flowVS package it is ported from is
+Artistic-2.0, which is GPL-compatible; GPL-2.0-or-later lets this crate link into both the
+GPL-2.0-only FlowSOM operator family and GPL-3 code. `LICENSE` holds the GPL-2 text.
